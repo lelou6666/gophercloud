@@ -11,7 +11,8 @@ var OpenstackApi = map[string]interface{}{
 
 // Api for use with rackspace
 var RackspaceApi = map[string]interface{}{
-	"Name":      "cloudServersOpenStack",
+	"Name":      "nova",
+	"Type":      "compute",
 	"VersionId": "2",
 	"UrlChoice": PublicURL,
 }
