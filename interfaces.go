@@ -21,6 +21,7 @@ type AccessProvider interface {
 	Reauthenticate() error
 }
 
+<<<<<<< HEAD
 // ObjectStorageProvider instances encapsulate a cloud-based storage API, should one exist in the service catalog
 // for your provider.
 type ObjectStoreProvider interface {
@@ -31,6 +32,13 @@ type ObjectStoreProvider interface {
 	// DeleteContainer attempts to delete an empty container.
 	// This call WILL fail if the container is not empty.
 	DeleteContainer(name string) error
+=======
+// ServiceCatalogerIdentityV2 interface provides direct access to the service catalog as offered by the Identity V2 API.
+// We regret we need to fracture the namespace of what should otherwise be a simple concept; however,
+// the OpenStack community saw fit to render V3's service catalog completely incompatible with V2.
+type ServiceCatalogerForIdentityV2 interface {
+	V2ServiceCatalog() []CatalogEntry
+>>>>>>> refs/remotes/nimbusproject/master
 }
 
 // CloudServersProvider instances encapsulate a Cloud Servers API, should one exist in the service catalog
@@ -151,6 +159,22 @@ type CloudServersProvider interface {
 	// this function might be more efficient.
 	ListAddresses(id string) (AddressSet, error)
 
+	// ListAddressesByNetwork yields the list of available addresses for a given server id and networkLabel.
+	// Example: ListAddressesByNetwork("234-4353-4jfrj-43j2s", "private")
+	ListAddressesByNetwork(id, networkLabel string) (NetworkAddress, error)
+
+	// ListFloatingIps yields the list of all floating IP addresses allocated to the current project.
+	ListFloatingIps() ([]FloatingIp, error)
+
+	// CreateFloatingIp allocates a new IP from the named pool to the current project.
+	CreateFloatingIp(pool string) (FloatingIp, error)
+
+	// DeleteFloatingIp returns the specified IP from the current project to the pool.
+	DeleteFloatingIp(ip FloatingIp) error
+
+	// AssociateFloatingIp associates the given floating IP to the given server id.
+	AssociateFloatingIp(serverId string, ip FloatingIp) error
+
 	// Images
 
 	// ListImages yields the list of available operating system images.  This function
@@ -182,4 +206,37 @@ type CloudServersProvider interface {
 
 	// ShowKeyPair will yield the named keypair.
 	ShowKeyPair(name string) (KeyPair, error)
+
+	// ListSecurityGroups provides a listing of security groups for the tenant.
+	// This method works only if the provider supports the os-security-groups extension.
+	ListSecurityGroups() ([]SecurityGroup, error)
+
+	// CreateSecurityGroup lets a tenant create a new security group.
+	// Only the SecurityGroup fields which are specified will be marshalled to the API.
+	// This method works only if the provider supports the os-security-groups extension.
+	CreateSecurityGroup(desired SecurityGroup) (*SecurityGroup, error)
+
+	// ListSecurityGroupsByServerId provides a list of security groups which apply to the indicated server.
+	// This method works only if the provider supports the os-security-groups extension.
+	ListSecurityGroupsByServerId(id string) ([]SecurityGroup, error)
+
+	// SecurityGroupById returns a security group corresponding to the provided ID number.
+	// This method works only if the provider supports the os-security-groups extension.
+	SecurityGroupById(id int) (*SecurityGroup, error)
+
+	// DeleteSecurityGroupById disposes of a security group corresponding to the provided ID number.
+	// This method works only if the provider supports the os-security-groups extension.
+	DeleteSecurityGroupById(id int) error
+
+	// ListDefaultSGRules lists default security group rules.
+	// This method only works if the provider supports the os-security-groups-default-rules extension.
+	ListDefaultSGRules() ([]SGRule, error)
+
+	// CreateDefaultSGRule creates a default security group rule.
+	// This method only works if the provider supports the os-security-groups-default-rules extension.
+	CreateDefaultSGRule(SGRule) (*SGRule, error)
+
+	// GetSGRule obtains information for a specified security group rule.
+	// This method only works if the provider supports the os-security-groups-default-rules extension.
+	GetSGRule(string) (*SGRule, error)
 }
