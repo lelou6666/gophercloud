@@ -1,13 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"flag"
+	"fmt"
 	"github.com/rackspace/gophercloud"
 )
 
 var id = flag.String("i", "", "Server ID to get info on.  Defaults to first server in your account if unspecified.")
-var rgn = flag.String("r", "DFW", "Datacenter region")
+var rgn = flag.String("r", "", "Datacenter region.  Leave blank for default region.")
 var quiet = flag.Bool("quiet", false, "Run quietly, for acceptance testing.  $? non-zero if issue.")
 
 func main() {
@@ -16,8 +16,8 @@ func main() {
 	withIdentity(false, func(auth gophercloud.AccessProvider) {
 		withServerApi(auth, func(servers gophercloud.CloudServersProvider) {
 			var (
-				err error
-				serverId string
+				err              error
+				serverId         string
 				deleteAfterwards bool
 			)
 
@@ -40,7 +40,7 @@ func main() {
 				panic(err)
 			}
 
-			configs := []string {
+			configs := []string{
 				"Access IPv4: %s\n",
 				"Access IPv6: %s\n",
 				"    Created: %s\n",
@@ -56,7 +56,7 @@ func main() {
 				"    User ID: %s\n",
 			}
 
-			values := []string {
+			values := []string{
 				s.AccessIPv4,
 				s.AccessIPv6,
 				s.Created,
@@ -91,7 +91,7 @@ func main() {
 func locateAServer(servers gophercloud.CloudServersProvider) (deleteAfter bool, id string, err error) {
 	ss, err := servers.ListServers()
 	if err != nil {
-		return false, "", err	
+		return false, "", err
 	}
 
 	if len(ss) > 0 {
