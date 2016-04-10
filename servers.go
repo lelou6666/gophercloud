@@ -5,6 +5,7 @@ package gophercloud
 
 import (
 	"fmt"
+	"github.com/mitchellh/mapstructure"
 	"github.com/racker/perigee"
 	"strings"
 )
@@ -55,6 +56,22 @@ func (gcp *genericServersProvider) ListServers() ([]Server, error) {
 			},
 		})
 	})
+
+	// Compatibility with v0.0.x -- we "map" our public and private
+	// addresses into a legacy structure field for the benefit of
+	// earlier software.
+
+	if err != nil {
+		return ss, err
+	}
+
+	for _, s := range ss {
+		err = mapstructure.Decode(s.RawAddresses, &s.Addresses)
+		if err != nil {
+			return ss, err
+		}
+	}
+
 	return ss, err
 }
 
@@ -71,6 +88,17 @@ func (gsp *genericServersProvider) ServerById(id string) (*Server, error) {
 			},
 		})
 	})
+
+	// Compatibility with v0.0.x -- we "map" our public and private
+	// addresses into a legacy structure field for the benefit of
+	// earlier software.
+
+	if err != nil {
+		return s, err
+	}
+
+	err = mapstructure.Decode(s.RawAddresses, &s.Addresses)
+
 	return s, err
 }
 
@@ -316,6 +344,32 @@ func (gsp *genericServersProvider) ListAddresses(id string) (AddressSet, error) 
 }
 
 // See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) ListAddressesByNetwork(id, networkLabel string) (NetworkAddress, error) {
+	pas := make(NetworkAddress)
+	var statusCode int
+
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/servers/%s/ips/%s", gsp.endpoint, id, networkLabel)
+		return perigee.Get(ep, perigee.Options{
+			Results: &pas,
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			OkCodes:    []int{200, 203},
+			StatusCode: &statusCode,
+		})
+	})
+
+	if err != nil {
+		if statusCode == 203 {
+			err = WarnUnauthoritative
+		}
+	}
+
+	return pas, err
+}
+
+// See the CloudServersProvider interface for details.
 func (gsp *genericServersProvider) CreateImage(id string, ci CreateImage) (string, error) {
 	response, err := gsp.context.ResponseWithReauth(gsp.access, func() (*perigee.Response, error) {
 		ep := fmt.Sprintf("%s/servers/%s/action", gsp.endpoint, id)
@@ -343,6 +397,160 @@ func (gsp *genericServersProvider) CreateImage(id string, ci CreateImage) (strin
 	return locationArr[len(locationArr)-1], err
 }
 
+// See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) ListSecurityGroups() ([]SecurityGroup, error) {
+	var sgs []SecurityGroup
+
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/os-security-groups", gsp.endpoint)
+		return perigee.Get(ep, perigee.Options{
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			Results: &struct {
+				SecurityGroups *[]SecurityGroup `json:"security_groups"`
+			}{&sgs},
+		})
+	})
+	return sgs, err
+}
+
+// See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) CreateSecurityGroup(desired SecurityGroup) (*SecurityGroup, error) {
+	var actual *SecurityGroup
+
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/os-security-groups", gsp.endpoint)
+		return perigee.Post(ep, perigee.Options{
+			ReqBody: struct {
+				AddSecurityGroup SecurityGroup `json:"security_group"`
+			}{desired},
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			Results: &struct {
+				SecurityGroup **SecurityGroup `json:"security_group"`
+			}{&actual},
+		})
+	})
+	return actual, err
+}
+
+// See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) ListSecurityGroupsByServerId(id string) ([]SecurityGroup, error) {
+	var sgs []SecurityGroup
+
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/servers/%s/os-security-groups", gsp.endpoint, id)
+		return perigee.Get(ep, perigee.Options{
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			Results: &struct {
+				SecurityGroups *[]SecurityGroup `json:"security_groups"`
+			}{&sgs},
+		})
+	})
+	return sgs, err
+}
+
+// See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) SecurityGroupById(id int) (*SecurityGroup, error) {
+	var actual *SecurityGroup
+
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/os-security-groups/%d", gsp.endpoint, id)
+		return perigee.Get(ep, perigee.Options{
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			Results: &struct {
+				SecurityGroup **SecurityGroup `json:"security_group"`
+			}{&actual},
+		})
+	})
+	return actual, err
+}
+
+// See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) DeleteSecurityGroupById(id int) error {
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/os-security-groups/%d", gsp.endpoint, id)
+		return perigee.Delete(ep, perigee.Options{
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			OkCodes: []int{202},
+		})
+	})
+	return err
+}
+
+// See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) ListDefaultSGRules() ([]SGRule, error) {
+	var sgrs []SGRule
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/os-security-group-default-rules", gsp.endpoint)
+		return perigee.Get(ep, perigee.Options{
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			Results: &struct{Security_group_default_rules *[]SGRule}{&sgrs},
+		})
+	})
+	return sgrs, err
+}
+
+// See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) CreateDefaultSGRule(r SGRule) (*SGRule, error) {
+	var sgr *SGRule
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/os-security-group-default-rules", gsp.endpoint)
+		return perigee.Post(ep, perigee.Options{
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			Results: &struct{Security_group_default_rule **SGRule}{&sgr},
+			ReqBody: struct{Security_group_default_rule SGRule `json:"security_group_default_rule"`}{r},
+		})
+	})
+	return sgr, err
+}
+
+// See the CloudServersProvider interface for details.
+func (gsp *genericServersProvider) GetSGRule(id string) (*SGRule, error) {
+	var sgr *SGRule
+	err := gsp.context.WithReauth(gsp.access, func() error {
+		ep := fmt.Sprintf("%s/os-security-group-default-rules/%s", gsp.endpoint, id)
+		return perigee.Get(ep, perigee.Options{
+			MoreHeaders: map[string]string{
+				"X-Auth-Token": gsp.access.AuthToken(),
+			},
+			Results: &struct{Security_group_default_rule **SGRule}{&sgr},
+		})
+	})
+	return sgr, err
+}
+
+// SecurityGroup provides a description of a security group, including all its rules.
+type SecurityGroup struct {
+	Description string   `json:"description,omitempty"`
+	Id          int      `json:"id,omitempty"`
+	Name        string   `json:"name,omitempty"`
+	Rules       []SGRule `json:"rules,omitempty"`
+	TenantId    string   `json:"tenant_id,omitempty"`
+}
+
+// SGRule encapsulates a single rule which applies to a security group.
+// This definition is just a guess, based on the documentation found in another extension here: http://docs.openstack.org/api/openstack-compute/2/content/GET_os-security-group-default-rules-v2_listSecGroupDefaultRules_v2__tenant_id__os-security-group-rules_ext-os-security-group-default-rules.html
+type SGRule struct {
+	FromPort   int                    `json:"from_port,omitempty"`
+	Id         int                    `json:"id,omitempty"`
+	IpProtocol string                 `json:"ip_protocol,omitempty"`
+	IpRange    map[string]interface{} `json:"ip_range,omitempty"`
+	ToPort     int                    `json:"to_port,omitempty"`
+}
+
 // RaxBandwidth provides measurement of server bandwidth consumed over a given audit interval.
 type RaxBandwidth struct {
 	AuditPeriodEnd    string `json:"audit_period_end"`
@@ -366,12 +574,16 @@ type AddressSet struct {
 	Private []VersionedAddress `json:"private"`
 }
 
+type NetworkAddress map[string][]VersionedAddress
+
 // Server records represent (virtual) hardware instances (not configurations) accessible by the user.
 //
 // The AccessIPv4 / AccessIPv6 fields provides IP addresses for the server in the IPv4 or IPv6 format, respectively.
 //
 // Addresses provides addresses for any attached isolated networks.
 // The version field indicates whether the IP address is version 4 or 6.
+// Note: only public and private pools appear here.
+// To get the complete set, use the AllAddressPools() method instead.
 //
 // Created tells when the server entity was created.
 //
@@ -445,9 +657,9 @@ type AddressSet struct {
 // http://docs.rackspace.com/servers/api/v2/cs-devguide/content/ch_extensions.html#ext_status
 // for more details.  It's too lengthy to include here.
 type Server struct {
-	AccessIPv4         string            `json:"accessIPv4"`
-	AccessIPv6         string            `json:"accessIPv6"`
-	Addresses          AddressSet        `json:"addresses"`
+	AccessIPv4         string `json:"accessIPv4"`
+	AccessIPv6         string `json:"accessIPv6"`
+	Addresses          AddressSet
 	Created            string            `json:"created"`
 	Flavor             FlavorLink        `json:"flavor"`
 	HostId             string            `json:"hostId"`
@@ -466,6 +678,24 @@ type Server struct {
 	OsExtStsPowerState int               `json:"OS-EXT-STS:power_state"`
 	OsExtStsTaskState  string            `json:"OS-EXT-STS:task_state"`
 	OsExtStsVmState    string            `json:"OS-EXT-STS:vm_state"`
+
+	RawAddresses map[string]interface{} `json:"addresses"`
+}
+
+// AllAddressPools returns a complete set of address pools available on the server.
+// The name of each pool supported keys the map.
+// The value of the map contains the addresses provided in the corresponding pool.
+func (s *Server) AllAddressPools() (map[string][]VersionedAddress, error) {
+	pools := make(map[string][]VersionedAddress, 0)
+	for pool, subtree := range s.RawAddresses {
+		addresses := make([]VersionedAddress, 0)
+		err := mapstructure.Decode(subtree, &addresses)
+		if err != nil {
+			return nil, err
+		}
+		pools[pool] = addresses
+	}
+	return pools, nil
 }
 
 // NewServerSettings structures record those fields of the Server structure to change
@@ -519,20 +749,23 @@ type NewServerSettings struct {
 // The Id field contains the server's unique identifier.
 // The identifier's scope is best assumed to be bound by the user's account, unless other arrangements have been made with Rackspace.
 //
+// The SecurityGroup field allows the user to specify a security group at launch.
+//
 // Any Links provided are used to refer to the server specifically by URL.
 // These links are useful for making additional REST calls not explicitly supported by Gorax.
 type NewServer struct {
-	Name            string            `json:"name,omitempty"`
-	ImageRef        string            `json:"imageRef,omitempty"`
-	FlavorRef       string            `json:"flavorRef,omitempty"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
-	Personality     []FileConfig      `json:"personality,omitempty"`
-	Networks        []NetworkConfig   `json:"networks,omitempty"`
-	AdminPass       string            `json:"adminPass,omitempty"`
-	KeyPairName     string            `json:"key_name,omitempty"`
-	Id              string            `json:"id,omitempty"`
-	Links           []Link            `json:"links,omitempty"`
-	OsDcfDiskConfig string            `json:"OS-DCF:diskConfig,omitempty"`
+	Name            string                   `json:"name,omitempty"`
+	ImageRef        string                   `json:"imageRef,omitempty"`
+	FlavorRef       string                   `json:"flavorRef,omitempty"`
+	Metadata        map[string]string        `json:"metadata,omitempty"`
+	Personality     []FileConfig             `json:"personality,omitempty"`
+	Networks        []NetworkConfig          `json:"networks,omitempty"`
+	AdminPass       string                   `json:"adminPass,omitempty"`
+	KeyPairName     string                   `json:"key_name,omitempty"`
+	Id              string                   `json:"id,omitempty"`
+	Links           []Link                   `json:"links,omitempty"`
+	OsDcfDiskConfig string                   `json:"OS-DCF:diskConfig,omitempty"`
+	SecurityGroup   []map[string]interface{} `json:"security_groups,omitempty"`
 }
 
 // ResizeRequest structures are used internally to encode to JSON the parameters required to resize a server instance.
